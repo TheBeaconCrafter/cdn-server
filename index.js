@@ -4,6 +4,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const mysql = require('mysql2'); // Import the mysql2 package
 const fs = require('fs');
+const cors = require('cors');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' }); // Customize the destination folder
@@ -21,7 +22,7 @@ const {
 } = secrets;
 
 app.use(express.json());
-
+app.use(cors({ origin: '*' })); //TODO: Change to specific origin
 
 const pool = mysql.createPool(dbConfig);
 
