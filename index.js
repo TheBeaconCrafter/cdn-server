@@ -191,7 +191,7 @@ app.post('/login', (req, res) => {
     pool.execute(query, [username, password], (err, results) => {
         if (err) {
             console.error('Error querying database:', err);
-            return res.status(500).send('Error during login.');
+            return res.status(500).send('Error during login: ' + err.message);
         }
 
         if (results.length > 0) {
