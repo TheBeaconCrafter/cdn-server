@@ -165,7 +165,7 @@ app.get('/files/user/:userId', authenticate, (req, res) => {
     res.json(userFiles);
 });
 
-app.get('/user/id/:username', (req, res) => {
+app.get('/user/id/:username', authenticate, (req, res) => {
     const username = req.params.username;
     const query = 'SELECT id FROM users WHERE username = ?';
 
