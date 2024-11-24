@@ -101,6 +101,47 @@ app.get('/files/user/:userId', authenticate, (req, res) => {
     });
 });
 
+app.get('/files/:fileId', authenticate, (req, res) => {
+    const fileId = parseInt(req.params.fileId);
+    const query = `
+        SELECT 
+            f.key, 
+            f.path,
+            u.username AS user 
+        FROM files f
+        JOIN users u ON f.userId = u.id
+        WHERE f.id = ?`;
+
+    pool.execute(query, [fileId], (err, results) => {
+        if (err) {
+            console.error('Error fetching file details:', err);
+            return res.status(500).send('Error getting file details.');
+        }
+
+        if (results.length === 0) {
+            return res.status(404).send('File not found.');
+        }
+
+        const { key, path, user } = results[0];
+
+        fs.stat(path, (err, stats) => {
+            if (err) {
+                console.error('Error getting file stats:', err);
+                return res.status(500).send('Error getting file details.');
+            }
+
+            const fileDetails = {
+                key,
+                user,
+                date: stats.mtime,  // Modification time
+                size: stats.size,
+            };
+
+            res.json(fileDetails);
+        });
+    });
+});
+
 // API endpoint to delete a specific file
 app.delete('/files/:fileId', authenticate, (req, res) => {
     const fileId = parseInt(req.params.fileId);
