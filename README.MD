@@ -46,9 +46,9 @@ CREATE TABLE users (
 ```
 **Create your user account**
 
-'''sql
+```sql
 INSERT INTO users (username, password) VALUES ('your_username', 'your_password');
-'''
+```
 
 **Create files table:**
 
