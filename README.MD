@@ -22,7 +22,7 @@ This is a Node.js-based CDN server that provides file uploads, storage, and retr
 
 ## Installation
 
-1. Clone the repository: `git clone https://github.com/TheBeaconCrafter/beacon-cdn-server.git`
+1. Clone the repository: `git clone https://github.com/TheBeaconCrafter/cdn-server.git`
 2. Install dependencies: `npm install`
 3. Configure database connection:
     * Create a MariaDB database (e.g., `cdnserver`)
