@@ -165,6 +165,25 @@ app.get('/files/user/:userId', authenticate, (req, res) => {
     res.json(userFiles);
 });
 
+app.get('/user/id/:username', (req, res) => {
+    const username = req.params.username;
+    const query = 'SELECT id FROM users WHERE username = ?';
+
+    pool.execute(query, [username], (err, results) => {
+        if (err) {
+            console.error('Error querying database:', err);
+            return res.status(500).send('Error retrieving user ID.');
+        }
+
+        if (results.length > 0) {
+            const userId = results[0].id;
+            res.send({ userId });
+        } else {
+            res.status(404).send('User not found.');
+        }
+    });
+});
+
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
     const query = 'SELECT id FROM users WHERE username = ? AND password = ?';
