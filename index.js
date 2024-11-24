@@ -19,10 +19,11 @@ const {
     serverURL,
     port,
     copyrightHolder,
+    corsOrigin,
 } = secrets;
 
 app.use(express.json());
-app.use(cors({ origin: '*' })); //TODO: Change to specific origin
+app.use(cors({ origin: corsOrigin }));
 
 const pool = mysql.createPool(dbConfig);
 

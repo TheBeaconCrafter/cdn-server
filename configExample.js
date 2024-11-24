@@ -20,6 +20,7 @@ const version = '1.0.0';
 const copyrightHolder = 'Example Person';
 const serverName = 'Example CDN';
 const serverURL = 'https://cdn.example.org'; // Example: https://cdn.example.org
+const corsOrigin = '*'; // Example: https://cdn.example.org - Set to frontent URL
 const port = 6635;
 
 // Export all secrets - do not modify!
@@ -31,6 +32,7 @@ const secrets = {
     serverURL,
     port,
     copyrightHolder,
+    corsOrigin,
 };
 
 module.exports = secrets;
