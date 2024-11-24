@@ -105,7 +105,6 @@ app.get('/files/:fileId', authenticate, (req, res) => {
     const fileId = parseInt(req.params.fileId);
     const query = `
         SELECT 
-            f.key, 
             f.path,
             u.username AS user 
         FROM files f
@@ -122,7 +121,7 @@ app.get('/files/:fileId', authenticate, (req, res) => {
             return res.status(404).send('File not found.');
         }
 
-        const { key, path, user } = results[0];
+        const { path, user } = results[0];
 
         fs.stat(path, (err, stats) => {
             if (err) {
@@ -130,10 +129,12 @@ app.get('/files/:fileId', authenticate, (req, res) => {
                 return res.status(500).send('Error getting file details.');
             }
 
+            const key = path.split('/').pop(); // Extract key from the path
+
             const fileDetails = {
                 key,
                 user,
-                date: stats.mtime,  // Modification time
+                date: stats.mtime, 
                 size: stats.size,
             };
 
