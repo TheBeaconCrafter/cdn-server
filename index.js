@@ -5,9 +5,13 @@ const jwt = require('jsonwebtoken');
 const mysql = require('mysql2'); // Import the mysql2 package
 const fs = require('fs');
 const cors = require('cors');
+const { body, validationResult } = require('express-validator');
 
 const app = express();
-const upload = multer({ dest: 'uploads/' }); // Customize the destination folder
+const upload = multer({ 
+    dest: 'uploads/',
+    limits: { fileSize: 1024 * 1024 * 1024 * 5 } // Limit file size to 5GB to make sure accidents don't happen
+});
 
 const secrets = require("./config.js"); 
 
@@ -73,8 +77,9 @@ app.post('/upload', authenticate, upload.single('file'), (req, res) => {
     const fileKey = path.basename(filepath); 
 
     // Store file metadata in the database (including the file key)
+    const sanitizedFilename = mysql.escape(originalname); // Protect agains SQL injection
     const query = 'INSERT INTO files (userId, filename, path, fileKey) VALUES (?, ?, ?, ?)';
-    pool.execute(query, [userId, originalname, filepath, fileKey], (err, results) => {
+    pool.execute(query, [userId, sanitizedFilename, filepath, fileKey], (err, results) => {
         if (err) {
             console.error('Error saving file metadata to database:', err);
             return res.status(500).send('Error uploading file.');
@@ -90,8 +95,11 @@ app.post('/upload', authenticate, upload.single('file'), (req, res) => {
 
 // API endpoint to get files by a specific user
 app.get('/files/user/:userId', authenticate, (req, res) => {
-    const userId = parseInt(req.params.userId);
+    const userId = req.params.userId;
+
+    // Use a parameterized query
     const query = 'SELECT * FROM files WHERE userId = ?';
+
     pool.execute(query, [userId], (err, results) => {
         if (err) {
             console.error('Error fetching files from database:', err);
@@ -103,6 +111,9 @@ app.get('/files/user/:userId', authenticate, (req, res) => {
 
 app.get('/files/:fileId', authenticate, (req, res) => {
     const fileId = parseInt(req.params.fileId);
+    if (isNaN(fileId)) {
+        return res.status(400).send('Invalid file ID.');
+    }
     const query = `
         SELECT 
             f.path,
@@ -146,10 +157,18 @@ app.get('/files/:fileId', authenticate, (req, res) => {
 // API endpoint to delete a specific file
 app.delete('/files/:fileId', authenticate, (req, res) => {
     const fileId = parseInt(req.params.fileId);
+    if (isNaN(fileId)) {
+        return res.status(400).send('Invalid file ID.');
+    }
+    const query = `
+        SELECT 
+            f.path,
+            u.username AS user 
+        FROM files f
+        JOIN users u ON f.userId = u.id
+        WHERE f.id = ?`; 
 
-    // Fetch the file path from the database
-    const selectQuery = 'SELECT path FROM files WHERE id = ?';
-    pool.execute(selectQuery, [fileId], (err, results) => {
+    pool.execute(query, [fileId], (err, results) => {
         if (err) {
             console.error('Error fetching file path from database:', err);
             return res.status(500).send('Error deleting file.');
@@ -184,6 +203,9 @@ app.delete('/files/:fileId', authenticate, (req, res) => {
 // API endpoint to download a file
 app.get('/files/:fileId/download', (req, res) => {
     const fileId = parseInt(req.params.fileId);
+    if (isNaN(fileId)) {
+        return res.status(400).send('Invalid file ID.');
+    }
     const query = 'SELECT filename, path FROM files WHERE id = ?';
     pool.execute(query, [fileId], (err, results) => {
         if (err) {
@@ -201,44 +223,53 @@ app.get('/files/:fileId/download', (req, res) => {
 });
 
 // API endpoint to rename a file by ID (only in the database)
-app.put('/files/:fileId/rename', (req, res) => {
-    const fileId = parseInt(req.params.fileId);
-    const { newFilename } = req.body;
-    
-    if (!newFilename) {
-        return res.status(400).send('New filename is required.');
-    }
+app.put('/files/:fileId/rename', 
+    // Input validation using express-validator
+    body('newFilename')
+        .notEmpty().withMessage('New filename is required')
+        .isLength({ min: 1, max: 100 }).withMessage('Filename must be between 1 and 100 characters')
+        .matches(/^[a-zA-Z0-9_.-]+$/).withMessage('Filename contains invalid characters'),
 
-    const query = 'SELECT filename FROM files WHERE id = ?';
-    pool.execute(query, [fileId], (err, results) => {
-        if (err) {
-            console.error('Error fetching file from database:', err);
-            return res.status(500).send('Error renaming file.');
+    (req, res) => {
+        const fileId = parseInt(req.params.fileId);
+        if (isNaN(fileId)) {
+            return res.status(400).send('Invalid file ID.');
         }
 
-        if (results.length === 0) {
-            return res.status(404).send('File not found.');
+        // Check for validation errors
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ errors: errors.array()   
+ });
         }
 
-        // Update the file name in the database (without modifying the file on disk)
-        const updateQuery = 'UPDATE files SET filename = ? WHERE id = ?';
-        pool.execute(updateQuery, [newFilename, fileId], (updateErr) => {
-            if (updateErr) {
-                console.error('Error updating filename in database:', updateErr);
-                return res.status(500).send('Error updating filename in database.');
+        const
+ { newFilename } = req.body; 
+
+        const query = 'SELECT filename FROM files WHERE id = ?';
+        pool.execute(query, [fileId], (err, results) => {
+            if (err) {
+                console.error('Error fetching file from database:', err);
+                return res.status(500).send('Error renaming file.');
             }
 
-            res.status(200).send('File renamed successfully in the database.');
-        });
-    });
-});
+            if (results.length === 0) {
+                return res.status(404).send('File not found.');
+            }
 
-// API endpoint to get files by a specific user
-app.get('/files/user/:userId', authenticate, (req, res) => {
-    const userId = parseInt(req.params.userId);
-    const userFiles = files.filter((file) => file.userId === userId);
-    res.json(userFiles);
-});
+            // Update the file name in the database (without modifying the file on disk)
+            const updateQuery = 'UPDATE files SET filename = ? WHERE id = ?';
+            pool.execute(updateQuery, [newFilename, fileId], (updateErr) => {
+                if (updateErr) {
+                    console.error('Error updating filename in database:', updateErr);
+                    return res.status(500).send('Error updating filename in database.');
+                }
+
+                res.status(200).send('File renamed successfully in the database.');
+            });
+        });
+    }
+);
 
 app.get('/user/id/:username', authenticate, (req, res) => {
     const username = req.params.username;
@@ -282,8 +313,8 @@ app.post('/login', (req, res) => {
 // API endpoint for public file access with preview and download
 app.get('/public/:fileKey', (req, res) => {
     const fileKey = req.params.fileKey; 
-    const query = 'SELECT f.id, f.filename, f.path, u.username FROM files f JOIN users u ON f.userId = u.id WHERE f.path LIKE ?'; // Select f.id
-    pool.execute(query, [`uploads/${fileKey}%`], (err, results) => { 
+    const query = 'SELECT f.id, f.filename, f.path, u.username FROM files f JOIN users u ON f.userId = u.id WHERE f.path LIKE CONCAT("uploads/", ?, "%")';
+    pool.execute(query, [fileKey], (err, results) =>  { 
         if (err) {
             console.error('Error fetching file from database:', err);
             return res.status(500).send('Error accessing file.');
