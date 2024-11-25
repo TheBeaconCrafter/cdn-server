@@ -6,6 +6,7 @@ const mysql = require('mysql2'); // Import the mysql2 package
 const fs = require('fs');
 const cors = require('cors');
 const { body, validationResult } = require('express-validator');
+const sanitizeFilename = require('sanitize-filename');
 
 const app = express();
 const upload = multer({ 
@@ -74,10 +75,16 @@ app.post('/upload', authenticate, upload.single('file'), (req, res) => {
     const userId = req.userId;
 
     // Extract the file key from the multer-generated filepath
-    const fileKey = path.basename(filepath); 
+    const fileKey = path.basename(filepath);
+
+    // Sanitize the filename to remove problematic characters
+    const sanitizedFilename = sanitizeFilename(originalname);
+    
+    if (!sanitizedFilename) {
+        return res.status(400).send('Invalid filename.');
+    }
 
     // Store file metadata in the database (including the file key)
-    const sanitizedFilename = mysql.escape(originalname); // Protect agains SQL injection
     const query = 'INSERT INTO files (userId, filename, path, fileKey) VALUES (?, ?, ?, ?)';
     pool.execute(query, [userId, sanitizedFilename, filepath, fileKey], (err, results) => {
         if (err) {
@@ -160,10 +167,12 @@ app.delete('/files/:fileId', authenticate, (req, res) => {
     if (isNaN(fileId)) {
         return res.status(400).send('Invalid file ID.');
     }
+
     const query = `
         SELECT 
             f.path,
-            u.username AS user 
+            u.username AS user,
+            f.userId
         FROM files f
         JOIN users u ON f.userId = u.id
         WHERE f.id = ?`; 
@@ -176,6 +185,11 @@ app.delete('/files/:fileId', authenticate, (req, res) => {
 
         if (results.length === 0) {
             return res.status(404).send('File not found.');
+        }
+
+        const fileUserId = results[0].userId;
+        if (fileUserId !== req.userId) {
+            return res.status(403).send('Forbidden. You do not have permission to delete this file: ' + fileUserId + ' ' + req.userId);
         }
 
         const filepath = results[0].path;
@@ -255,6 +269,11 @@ app.put('/files/:fileId/rename',
 
             if (results.length === 0) {
                 return res.status(404).send('File not found.');
+            }
+
+            const fileUserId = results[0].userId;
+            if (fileUserId !== req.userId) {
+                return res.status(403).send('Forbidden. You do not have permission to rename this file.');
             }
 
             // Update the file name in the database (without modifying the file on disk)
