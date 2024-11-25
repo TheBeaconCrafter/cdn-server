@@ -200,6 +200,39 @@ app.get('/files/:fileId/download', (req, res) => {
     });
 });
 
+// API endpoint to rename a file by ID (only in the database)
+app.put('/files/:fileId/rename', (req, res) => {
+    const fileId = parseInt(req.params.fileId);
+    const { newFilename } = req.body;
+    
+    if (!newFilename) {
+        return res.status(400).send('New filename is required.');
+    }
+
+    const query = 'SELECT filename FROM files WHERE id = ?';
+    pool.execute(query, [fileId], (err, results) => {
+        if (err) {
+            console.error('Error fetching file from database:', err);
+            return res.status(500).send('Error renaming file.');
+        }
+
+        if (results.length === 0) {
+            return res.status(404).send('File not found.');
+        }
+
+        // Update the file name in the database (without modifying the file on disk)
+        const updateQuery = 'UPDATE files SET filename = ? WHERE id = ?';
+        pool.execute(updateQuery, [newFilename, fileId], (updateErr) => {
+            if (updateErr) {
+                console.error('Error updating filename in database:', updateErr);
+                return res.status(500).send('Error updating filename in database.');
+            }
+
+            res.status(200).send('File renamed successfully in the database.');
+        });
+    });
+});
+
 // API endpoint to get files by a specific user
 app.get('/files/user/:userId', authenticate, (req, res) => {
     const userId = parseInt(req.params.userId);
