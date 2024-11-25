@@ -273,9 +273,12 @@ app.get('/public/:fileKey', (req, res) => {
         } else if (extname === '.mp4' || extname === '.webm') {
             contentType = 'video/' + extname.slice(1);
             embedContent = `<video controls><source src="/files/${fileId}/download" type="${contentType}"></video>`; // Use fileId
+        } else if (extname === '.mp3' || extname === '.wav' || extname === '.aac' || extname === '.ogg') {
+            contentType = 'audio/' + extname.slice(1);
+            embedContent = `<audio controls><source src="/files/${fileId}/download" type="${contentType}"></audio>`; // Use fileId
         } else {
             contentType = 'application/octet-stream'; 
-        }
+        }        
 
         // Generate HTML for preview with download link
         const html = `
@@ -314,10 +317,10 @@ app.get('/public/:fileKey', (req, res) => {
                     margin-bottom: 10px;
                 }
 
-                img, video {
+                img, video, audio {
                     max-width: 100%;
                     height: auto;
-                    display: block; /* Prevents image from overflowing the frame */
+                    display: block; /* Prevents content from overflowing the frame */
                 }
 
                 .user-info {
@@ -354,7 +357,7 @@ app.get('/public/:fileKey', (req, res) => {
         <body>
             <h1>${filename}</h1>
             <div class="frame">
-                ${embedContent} 
+                ${embedContent ? embedContent : ''} 
             </div>
             <div class="user-info">Uploaded by: ${username}</div>
             <br>
