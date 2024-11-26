@@ -104,6 +104,7 @@ CREATE TABLE files (
 * **GET /files/user/:userId:** Retrieves files for a specific user (requires authentication)
 * **DELETE /files/:fileId:** Deletes a file (requires authentication)
 * **GET /files/:fileId/download:** Downloads a file (public)
+* **GET /files/:fileId/embed:** Embed a file without forcing a download (public)
 * **POST /login:** User login
 * **GET /public/:fileId:** Public file access with preview and download
 

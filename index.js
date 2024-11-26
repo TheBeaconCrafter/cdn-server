@@ -134,7 +134,6 @@ app.post('/sync', syncAuthenticate, upload.single('file'), (req, res) => {
     });
 });
 
-
 // API endpoint for file uploads (protected by authentication)
 app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
     if (isSlave) {
@@ -194,7 +193,6 @@ app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
         });
     });
 });
-
 
 // API endpoint to get files by a specific user
 app.get('/files/user/:userId', authenticate, (req, res) => {
@@ -318,6 +316,67 @@ app.delete('/files/:fileId', authenticate, (req, res) => {
                 }
                 res.send('File deleted successfully!');
             });
+        });
+    });
+});
+
+// API endpoint to embed an image or video without forcing a download
+app.get('/files/:fileId/embed', (req, res) => {
+    const fileId = parseInt(req.params.fileId);
+    if (isNaN(fileId)) {
+        return res.status(400).send('Invalid file ID.');
+    }
+
+    var query = '';
+    if(isSlave) {
+        query = 'SELECT filename, path FROM files WHERE fileId = ?';
+    } else {
+        query = 'SELECT filename, path FROM files WHERE id = ?';
+    }
+
+    pool.execute(query, [fileId], (err, results) => {
+        if (err) {
+            console.error('Error fetching file from database:', err);
+            return res.status(500).send('Error fetching file.');
+        }
+
+        if (results.length === 0) {
+            return res.status(404).send('File not found.');
+        }
+
+        const { filename, path: filepath } = results[0];
+        
+        // Ensure the filepath is absolute
+        const absolutePath = path.resolve(filepath);
+
+        // Determine content type for preview (if supported)
+        const extname = path.extname(filename).toLowerCase();
+        let contentType;
+
+        if (extname === '.jpg' || extname === '.jpeg') {
+            contentType = 'image/jpeg';
+        } else if (extname === '.png') {
+            contentType = 'image/png';
+        } else if (extname === '.gif') {
+            contentType = 'image/gif';
+        } else if (extname === '.mp4') {
+            contentType = 'video/mp4';
+        } else if (extname === '.webm') {
+            contentType = 'video/webm';
+        } else if (extname === '.ogg') {
+            contentType = 'video/ogg';
+        } else {
+            contentType = 'application/octet-stream'; // Default type if the file type is unknown
+        }
+
+        res.setHeader('Content-Type', contentType);
+        
+        // Stream the file contents to the response
+        res.sendFile(absolutePath, (err) => {
+            if (err) {
+                console.error('Error sending file:', err);
+                res.status(500).send('Error sending file.');
+            }
         });
     });
 });
