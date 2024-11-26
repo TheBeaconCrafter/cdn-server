@@ -349,83 +349,154 @@ app.delete("/files/:fileId", authenticate, (req, res) => {
 });
 
 app.get("/files/:fileId/embed", (req, res) => {
-    const fileId = parseInt(req.params.fileId);
-    if (isNaN(fileId)) {
-      return res.status(400).send("Invalid file ID.");
-    }
-  
-    const query = isSlave 
-      ? "SELECT filename, path FROM files WHERE fileId = ?"
-      : "SELECT filename, path FROM files WHERE id = ?";
-  
-    pool.execute(query, [fileId], (err, results) => {
-      // Existing error checks...
-  
-      const { filename, path: filepath } = results[0];
-      const absolutePath = path.resolve(filepath);
-      
-      // Determine content type
-      const extname = path.extname(filename).toLowerCase();
-      const contentTypeMap = {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.gif': 'image/gif',
-        '.mp4': 'video/mp4',
-        '.webm': 'video/webm',
-        '.ogg': 'video/ogg'
-      };
-  
-      const contentType = contentTypeMap[extname] || 'application/octet-stream';
-  
-      // Create a read stream instead of using sendFile
-      const fileStream = fs.createReadStream(absolutePath);
-  
-      fileStream.on('error', (streamErr) => {
-        console.error("File stream error:", streamErr);
-        if (!res.headersSent) {
-          res.status(500).send("Error reading file.");
-        }
-      });
-  
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      
-      fileStream.pipe(res).on('error', (pipeErr) => {
-        console.error("Pipe error:", pipeErr);
-        if (!res.headersSent) {
-          res.status(500).send("Error streaming file.");
-        }
-      });
-    });
-  });
-
-// API endpoint to download a file
-app.get("/files/:fileId/download", (req, res) => {
   const fileId = parseInt(req.params.fileId);
   if (isNaN(fileId)) {
     return res.status(400).send("Invalid file ID.");
   }
 
-  var query = "";
-  if (isSlave) {
-    query = "SELECT filename, path FROM files WHERE fileId = ?";
-  } else {
-    query = "SELECT filename, path FROM files WHERE id = ?";
-  }
+  const query = isSlave
+    ? "SELECT filename, path FROM files WHERE fileId = ?"
+    : "SELECT filename, path FROM files WHERE id = ?";
 
   pool.execute(query, [fileId], (err, results) => {
+    // Check for database errors
+    if (err) {
+      console.error("Database query error:", err);
+      return res.status(500).send("Database error occurred.");
+    }
+
+    // Check if no results were found
+    if (!results || results.length === 0) {
+      return res.status(404).send("File not found.");
+    }
+
+    // Safely destructure results
+    const { filename, path: filepath } = results[0];
+
+    // Additional validation
+    if (!filename || !filepath) {
+      return res.status(500).send("Invalid file information.");
+    }
+
+    // Safely resolve path
+    let absolutePath;
+    try {
+      absolutePath = path.resolve(filepath);
+    } catch (pathErr) {
+      console.error("Path resolution error:", pathErr);
+      return res.status(500).send("Error processing file path.");
+    }
+
+    // Determine content type
+    const extname = path.extname(filename).toLowerCase();
+    const contentTypeMap = {
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".gif": "image/gif",
+      ".mp4": "video/mp4",
+      ".webm": "video/webm",
+      ".ogg": "video/ogg",
+    };
+
+    const contentType = contentTypeMap[extname] || "application/octet-stream";
+
+    // Safely create file stream
+    let fileStream;
+    try {
+      fileStream = fs.createReadStream(absolutePath);
+    } catch (readErr) {
+      console.error("File read error:", readErr);
+      return res.status(500).send("Error reading file.");
+    }
+
+    fileStream.on("error", (streamErr) => {
+      console.error("File stream error:", streamErr);
+      if (!res.headersSent) {
+        res.status(500).send("Error streaming file.");
+      }
+    });
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
+    fileStream.pipe(res).on("error", (pipeErr) => {
+      console.error("Pipe error:", pipeErr);
+      if (!res.headersSent) {
+        res.status(500).send("Error streaming file.");
+      }
+    });
+  });
+});
+
+app.get("/files/:fileId/download", (req, res) => {
+  // Validate file ID
+  const fileId = parseInt(req.params.fileId);
+  if (isNaN(fileId)) {
+    return res.status(400).send("Invalid file ID.");
+  }
+
+  // Prepare query based on server type
+  const query = isSlave
+    ? "SELECT filename, path FROM files WHERE fileId = ?"
+    : "SELECT filename, path FROM files WHERE id = ?";
+
+  // Execute database query
+  pool.execute(query, [fileId], (err, results) => {
+    // Handle database query errors
     if (err) {
       console.error("Error fetching file from database:", err);
       return res.status(500).send("Error downloading file.");
     }
 
-    if (results.length === 0) {
+    // Check if file exists
+    if (!results || results.length === 0) {
       return res.status(404).send("File not found.");
     }
 
+    // Safely extract filename and filepath
     const { filename, path: filepath } = results[0];
-    res.download(filepath, filename);
+
+    // Validate filename and filepath
+    if (!filename || !filepath) {
+      console.error("Invalid file metadata:", { filename, filepath });
+      return res.status(500).send("Invalid file information.");
+    }
+
+    // Safely check if file exists
+    let stats;
+    try {
+      stats = fs.statSync(filepath);
+    } catch (statErr) {
+      console.error("File access error:", statErr);
+      return res.status(404).send("File cannot be accessed.");
+    }
+
+    // Validate file is readable
+    if (!stats.isFile()) {
+      console.error("Not a regular file:", filepath);
+      return res.status(500).send("Invalid file type.");
+    }
+
+    // Set content disposition to force download
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // Safely stream the file
+    const fileStream = fs.createReadStream(filepath);
+
+    fileStream.on('error', (streamErr) => {
+      console.error("File stream error:", streamErr);
+      if (!res.headersSent) {
+        res.status(500).send("Error downloading file.");
+      }
+    });
+
+    fileStream.pipe(res).on('error', (pipeErr) => {
+      console.error("Pipe error:", pipeErr);
+      if (!res.headersSent) {
+        res.status(500).send("Error streaming file.");
+      }
+    });
   });
 });
 
@@ -709,7 +780,7 @@ app.get("/public/:fileKey", (req, res) => {
         <h1>${filename}</h1>
         <div class="frame">
             <div class="frame-inner">
-                ${embedContent ? embedContent : ''}
+                ${embedContent ? embedContent : ""}
             </div>
         </div>
         <div class="user-info">Uploaded by: ${username}</div>
@@ -722,8 +793,8 @@ app.get("/public/:fileKey", (req, res) => {
     </html>
     `;
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Content-Type', contentType);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Content-Type", contentType);
     res.send(html);
   });
 });
