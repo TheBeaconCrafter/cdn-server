@@ -389,6 +389,7 @@ app.get("/files/:fileId/embed", (req, res) => {
       });
   
       res.setHeader('Content-Type', contentType);
+      res.setHeader('Access-Control-Allow-Origin', '*');
       
       fileStream.pipe(res).on('error', (pipeErr) => {
         console.error("Pipe error:", pipeErr);
@@ -600,6 +601,17 @@ app.get("/public/:fileKey", (req, res) => {
         <meta property="og:url" content="${url}/public/${id}" />
         <meta property="og:image" content="${url}/files/${id}/embed" />
         <meta property="og:video" content="${url}/files/${id}/embed" />
+        <meta property="og:video:type" content="${contentType}" />
+        <meta property="og:video:width" content="800" />
+        <meta property="og:video:height" content="600" />
+        
+        <!-- Twitter Card for additional platform support -->
+        <meta name="twitter:card" content="player" />
+        <meta name="twitter:title" content="${filename} | ${serverName}" />
+        <meta name="twitter:description" content="Uploaded by ${username}" />
+        <meta name="twitter:player" content="${url}/files/${id}/embed" />
+        <meta name="twitter:player:width" content="800" />
+        <meta name="twitter:player:height" content="600" />
         <style>
             body {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -710,6 +722,8 @@ app.get("/public/:fileKey", (req, res) => {
     </html>
     `;
 
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', contentType);
     res.send(html);
   });
 });
