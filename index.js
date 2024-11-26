@@ -429,74 +429,28 @@ app.get("/files/:fileId/embed", (req, res) => {
   });
 });
 
+// API endpoint to download a file
 app.get("/files/:fileId/download", (req, res) => {
-  // Validate file ID
   const fileId = parseInt(req.params.fileId);
   if (isNaN(fileId)) {
     return res.status(400).send("Invalid file ID.");
   }
-
-  // Prepare query based on server type
-  const query = isSlave
-    ? "SELECT filename, path FROM files WHERE fileId = ?"
-    : "SELECT filename, path FROM files WHERE id = ?";
-
-  // Execute database query
+  var query = "";
+  if (isSlave) {
+    query = "SELECT filename, path FROM files WHERE fileId = ?";
+  } else {
+    query = "SELECT filename, path FROM files WHERE id = ?";
+  }
   pool.execute(query, [fileId], (err, results) => {
-    // Handle database query errors
     if (err) {
       console.error("Error fetching file from database:", err);
       return res.status(500).send("Error downloading file.");
     }
-
-    // Check if file exists
-    if (!results || results.length === 0) {
+    if (results.length === 0) {
       return res.status(404).send("File not found.");
     }
-
-    // Safely extract filename and filepath
     const { filename, path: filepath } = results[0];
-
-    // Validate filename and filepath
-    if (!filename || !filepath) {
-      console.error("Invalid file metadata:", { filename, filepath });
-      return res.status(500).send("Invalid file information.");
-    }
-
-    // Safely check if file exists
-    let stats;
-    try {
-      stats = fs.statSync(filepath);
-    } catch (statErr) {
-      console.error("File access error:", statErr);
-      return res.status(404).send("File cannot be accessed.");
-    }
-
-    // Validate file is readable
-    if (!stats.isFile()) {
-      console.error("Not a regular file:", filepath);
-      return res.status(500).send("Invalid file type.");
-    }
-
-    // Set content disposition to force download
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-
-    // Safely stream the file
-    const fileStream = fs.createReadStream(filepath);
-
-    fileStream.on('error', (streamErr) => {
-      console.error("File stream error:", streamErr);
-      if (!res.headersSent) {
-        res.status(500).send("Error downloading file.");
-      }
-    });
-
-    fileStream.pipe(res).on('error', (pipeErr) => {
-      console.error("Pipe error:", pipeErr);
-      if (!res.headersSent) {
-        res.status(500).send("Error streaming file.");
-      }
-    });
+    res.download(filepath, filename);
   });
 });
 
@@ -643,10 +597,10 @@ app.get("/public/:fileKey", (req, res) => {
       extname === ".gif"
     ) {
       contentType = "image/" + extname.slice(1);
-      embedContent = `<img src="/files/${id}/download" alt="${filename}" />`; // Use fileId
+      embedContent = `<img src="/files/${id}/embed" alt="${filename}" />`; // Use fileId
     } else if (extname === ".mp4" || extname === ".webm") {
       contentType = "video/" + extname.slice(1);
-      embedContent = `<video controls><source src="/files/${id}/download" type="${contentType}"></video>`; // Use fileId
+      embedContent = `<video controls><source src="/files/${id}/embed" type="${contentType}"></video>`; // Use fileId
     } else if (
       extname === ".mp3" ||
       extname === ".wav" ||
@@ -654,7 +608,7 @@ app.get("/public/:fileKey", (req, res) => {
       extname === ".ogg"
     ) {
       contentType = "audio/" + extname.slice(1);
-      embedContent = `<audio controls><source src="/files/${id}/download" type="${contentType}"></audio>`; // Use fileId
+      embedContent = `<audio controls><source src="/files/${id}/embed" type="${contentType}"></audio>`; // Use fileId
     } else {
       contentType = "application/octet-stream";
     }
@@ -794,7 +748,6 @@ app.get("/public/:fileKey", (req, res) => {
     `;
 
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Content-Type", contentType);
     res.send(html);
   });
 });
