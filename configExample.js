@@ -16,7 +16,7 @@ const dbConfig = {
 const jwtSecret = 'yourjwtsecret';
 
 // Server Config
-const version = '1.0.0';
+const version = '1.1.0';
 const copyrightHolder = 'Example Person';
 const serverName = 'Example CDN';
 const serverURL = 'https://cdn.example.org'; // Example: https://cdn.example.org
@@ -57,7 +57,6 @@ const secrets = {
     isSlave,
     masterServerURL,
     slaveServerURL,
-    syncSecret,
 };
 
 module.exports = secrets;
