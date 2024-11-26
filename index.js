@@ -752,6 +752,106 @@ app.get("/public/:fileKey", (req, res) => {
   });
 });
 
+// API endpoint for status
+app.get("/status", (req, res) => {
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Status</title>
+    <style>
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #f0f8ff, #d4f9e2);
+        color: #333;
+      }
+      .status-container {
+        text-align: center;
+        padding: 20px 40px;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      }
+      .status {
+        font-size: 3rem;
+        font-weight: bold;
+        color: #28a745;
+        text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.2);
+      }
+      .status:after {
+        content: " ✅";
+      }
+    </style>
+  </head>
+  <body>
+    <div class="status-container">
+      <div class="status">UP</div>
+    </div>
+  </body>
+  </html>
+  `;
+
+  res.setHeader("Content-Type", "text/html");
+  res.send(html);
+});
+
+// Root endpoint redirecting to /status
+app.get("/", (req, res) => {
+  const html = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting...</title>
+    <meta http-equiv="refresh" content="2;url=/status">
+    <style>
+      body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #ffefba, #ffffff);
+        color: #333;
+        text-align: center;
+      }
+      .redirect-message {
+        font-size: 1.5rem;
+        padding: 20px;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      }
+      .redirect-message span {
+        color: #007bff;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="redirect-message">
+      Redirecting to <span onclick="window.location.href='/status'">/status</span>... <br />
+      If you are not redirected automatically, <a href="/status">click here</a>.
+    </div>
+  </body>
+  </html>
+  `;
+
+  res.setHeader("Content-Type", "text/html");
+  res.send(html);
+});
+
+
 // Serve static files (if needed)
 app.use(express.static("public"));
 
