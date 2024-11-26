@@ -7,6 +7,9 @@ const fs = require('fs');
 const cors = require('cors');
 const { body, validationResult } = require('express-validator');
 const sanitizeFilename = require('sanitize-filename');
+const axios = require('axios');
+const FormData = require('form-data');
+require('dotenv').config();
 
 const app = express();
 const upload = multer({ 
@@ -25,6 +28,11 @@ const {
     port,
     copyrightHolder,
     corsOrigin,
+    enableSyncing,
+    isSlave,
+    masterServerURL,
+    slaveServerURL,
+    syncSecret,
 } = secrets;
 
 app.use(express.json());
@@ -65,8 +73,74 @@ const authenticate = (req, res, next) => {
     }
 };
 
+// Middleware to authenticate the /sync endpoint
+function syncAuthenticate(req, res, next) {
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (token !== process.env.SHARED_SECRET) {
+        return res.status(403).send('Unauthorized.');
+    }
+    next();
+}
+
+// API endpoint for syncing files
+app.post('/sync', syncAuthenticate, upload.single('file'), (req, res) => {
+    if (!isSlave || !enableSyncing) {
+        return res.status(403).send('Sync route is not available on the master server.');
+    }
+
+    if (!req.file) {
+        return res.status(400).send('No file received.');
+    }
+
+    const { path: tempPath, originalname } = req.file;
+    const savePath = path.join(__dirname, 'uploads', originalname);
+
+    // Extract the additional metadata from the request body
+    const { fileId, userId, filename } = req.body;
+
+    // Validate received data
+    if (!fileId || !userId || !filename) {
+        return res.status(400).send('Missing required metadata.');
+    }
+
+    console.log("Should insert file ID " + fileId + " with user ID " + userId + " and filename " + filename);
+
+    // Move the file to the /uploads directory
+    fs.rename(tempPath, savePath, (err) => {
+        if (err) {
+            console.error('Error saving file:', err);
+            return res.status(500).send('Error saving file.');
+        }
+
+        // After moving the file, store file metadata in the slave's database
+        const fileKey = path.basename(savePath);
+
+        // Sanitize the filename to remove problematic characters
+        const sanitizedFilename = sanitizeFilename(filename);
+        if (!sanitizedFilename) {
+            return res.status(400).send('Invalid filename.');
+        }
+
+        // Store file metadata in the slave's database (use the same pool logic as the master)
+        const query = 'INSERT INTO files (userId, filename, path, fileKey, fileId) VALUES (?, ?, ?, ?, ?)';
+        pool.execute(query, [userId, sanitizedFilename, savePath, fileKey, fileId], (err, results) => {
+            if (err) {
+                console.error('Error saving file metadata to database:', err);
+                return res.status(500).send('Error saving file metadata.');
+            }
+
+            res.status(200).send(`File ${originalname} received, saved, and metadata stored.`);
+        });
+    });
+});
+
+
 // API endpoint for file uploads (protected by authentication)
-app.post('/upload', authenticate, upload.single('file'), (req, res) => {
+app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
+    if (isSlave) {
+        return res.status(403).send('Please query the master server.');
+    }
+
     if (!req.file) {
         return res.status(400).send('No file uploaded.');
     }
@@ -79,29 +153,55 @@ app.post('/upload', authenticate, upload.single('file'), (req, res) => {
 
     // Sanitize the filename to remove problematic characters
     const sanitizedFilename = sanitizeFilename(originalname);
-    
     if (!sanitizedFilename) {
         return res.status(400).send('Invalid filename.');
     }
 
     // Store file metadata in the database (including the file key)
     const query = 'INSERT INTO files (userId, filename, path, fileKey) VALUES (?, ?, ?, ?)';
-    pool.execute(query, [userId, sanitizedFilename, filepath, fileKey], (err, results) => {
+    pool.execute(query, [userId, sanitizedFilename, filepath, fileKey], async (err, results) => {
         if (err) {
             console.error('Error saving file metadata to database:', err);
             return res.status(500).send('Error uploading file.');
         }
 
+        const fileId = results.insertId;
+
+        // Prepare data for syncing to the slave server
+        const form = new FormData();
+        form.append('file', fs.createReadStream(filepath), fileKey);
+        form.append('fileId', fileId);         // Pass fileId
+        form.append('userId', userId);         // Pass userId
+        form.append('filename', sanitizedFilename); // Pass sanitized filename
+
+        try {
+            const response = await axios.post(slaveServerURL + "/sync", form, {
+                headers: {
+                    ...form.getHeaders(),
+                    'Authorization': `Bearer ${process.env.SHARED_SECRET}`, // Shared secret
+                },
+            });
+            console.log('Sync response:', response.data);
+        } catch (syncErr) {
+            console.error('Error syncing file to slave server:', syncErr);
+            // Optionally handle sync failure (e.g., mark for retry)
+        }
+
         // Return a JSON response with fileId and fileKey
-        res.status(200).json({ 
-            fileId: results.insertId, 
-            fileKey: fileKey 
+        res.status(200).json({
+            fileId: fileId,
+            fileKey: fileKey,
         });
     });
 });
 
+
 // API endpoint to get files by a specific user
 app.get('/files/user/:userId', authenticate, (req, res) => {
+    if (isSlave) {
+        return res.status(403).send('Please query the master server.');
+    }
+
     const userId = req.params.userId;
 
     // Use a parameterized query
@@ -117,6 +217,10 @@ app.get('/files/user/:userId', authenticate, (req, res) => {
 });
 
 app.get('/files/:fileId', authenticate, (req, res) => {
+    if (isSlave) {
+        return res.status(403).send('Please query the master server.');
+    }
+
     const fileId = parseInt(req.params.fileId);
     if (isNaN(fileId)) {
         return res.status(400).send('Invalid file ID.');
@@ -163,6 +267,10 @@ app.get('/files/:fileId', authenticate, (req, res) => {
 
 // API endpoint to delete a specific file
 app.delete('/files/:fileId', authenticate, (req, res) => {
+    if (isSlave) {
+        return res.status(403).send('Please query the master server.');
+    }
+
     const fileId = parseInt(req.params.fileId);
     if (isNaN(fileId)) {
         return res.status(400).send('Invalid file ID.');
@@ -220,7 +328,14 @@ app.get('/files/:fileId/download', (req, res) => {
     if (isNaN(fileId)) {
         return res.status(400).send('Invalid file ID.');
     }
-    const query = 'SELECT filename, path FROM files WHERE id = ?';
+
+    var query = '';
+    if(isSlave) {
+        query = 'SELECT filename, path FROM files WHERE fileId = ?';
+    } else {
+        query = 'SELECT filename, path FROM files WHERE id = ?';
+    }
+    
     pool.execute(query, [fileId], (err, results) => {
         if (err) {
             console.error('Error fetching file from database:', err);
@@ -262,6 +377,9 @@ app.put('/files/:fileId/rename',
 
         const query = 'SELECT filename FROM files WHERE id = ?';
         pool.execute(query, [fileId], (err, results) => {
+            if (isSlave) {
+                return res.status(403).send('Please query the master server.');
+            }
             if (err) {
                 console.error('Error fetching file from database:', err);
                 return res.status(500).send('Error renaming file.');
@@ -291,6 +409,9 @@ app.put('/files/:fileId/rename',
 );
 
 app.get('/user/id/:username', authenticate, (req, res) => {
+    if (isSlave) {
+        return res.status(403).send('Please query the master server.');
+    }
     const username = req.params.username;
     const query = 'SELECT id FROM users WHERE username = ?';
 
@@ -310,6 +431,9 @@ app.get('/user/id/:username', authenticate, (req, res) => {
 });
 
 app.post('/login', (req, res) => {
+    if (isSlave) {
+        return res.status(403).send('Please query the master server.');
+    }
     const { username, password } = req.body;
     const query = 'SELECT id FROM users WHERE username = ? AND password = ?';
 
@@ -332,7 +456,12 @@ app.post('/login', (req, res) => {
 // API endpoint for public file access with preview and download
 app.get('/public/:fileKey', (req, res) => {
     const fileKey = req.params.fileKey; 
-    const query = 'SELECT f.id, f.filename, f.path, u.username FROM files f JOIN users u ON f.userId = u.id WHERE f.path LIKE CONCAT("uploads/", ?, "%")';
+    var query = '';
+    if(isSlave) {
+        query = 'SELECT f.fileId, f.filename, f.path FROM files f WHERE f.fileKey = ?';
+    } else {
+        query = 'SELECT f.id, f.filename, f.path, u.username FROM files f JOIN users u ON f.userId = u.id WHERE f.path LIKE CONCAT("uploads/", ?, "%")';
+    }
     pool.execute(query, [fileKey], (err, results) =>  { 
         if (err) {
             console.error('Error fetching file from database:', err);
@@ -343,7 +472,9 @@ app.get('/public/:fileKey', (req, res) => {
             return res.status(404).send('File not found.');
         }
 
-        const { id: fileId, filename, path: filepath, username } = results[0]; // Get fileId
+        const { fileId, filename, path: filepath, username } = results[0];
+        const id = isSlave ? fileId : results[0].id;  // Use the appropriate ID (fileId for slave, id for master)
+        const url = isSlave ? slaveServerURL : serverURL;
 
         // Determine content type for preview (if supported)
         const extname = path.extname(filename).toLowerCase();
@@ -352,13 +483,13 @@ app.get('/public/:fileKey', (req, res) => {
 
         if (extname === '.jpg' || extname === '.jpeg' || extname === '.png' || extname === '.gif') {
             contentType = 'image/' + extname.slice(1);
-            embedContent = `<img src="/files/${fileId}/download" alt="${filename}" />`; // Use fileId
+            embedContent = `<img src="/files/${id}/download" alt="${filename}" />`; // Use fileId
         } else if (extname === '.mp4' || extname === '.webm') {
             contentType = 'video/' + extname.slice(1);
-            embedContent = `<video controls><source src="/files/${fileId}/download" type="${contentType}"></video>`; // Use fileId
+            embedContent = `<video controls><source src="/files/${id}/download" type="${contentType}"></video>`; // Use fileId
         } else if (extname === '.mp3' || extname === '.wav' || extname === '.aac' || extname === '.ogg') {
             contentType = 'audio/' + extname.slice(1);
-            embedContent = `<audio controls><source src="/files/${fileId}/download" type="${contentType}"></audio>`; // Use fileId
+            embedContent = `<audio controls><source src="/files/${id}/download" type="${contentType}"></audio>`; // Use fileId
         } else {
             contentType = 'application/octet-stream'; 
         }        
@@ -371,8 +502,8 @@ app.get('/public/:fileKey', (req, res) => {
             <meta property="og:title" content="${filename} | ${serverName}" />
             <meta property="og:description" content="${serverName}" /> 
             <meta property="og:type" content="${contentType}" />
-            <meta property="og:url" content="${serverURL}/public/${fileId}" />
-            <meta property="og:image" content="${serverURL}/files/${fileId}/download" />
+            <meta property="og:url" content="${url}/public/${id}" />
+            <meta property="og:image" content="${url}/files/${id}/download" />
             <style> 
                 body {
                     font-family: sans-serif;
@@ -444,7 +575,7 @@ app.get('/public/:fileKey', (req, res) => {
             </div>
             <div class="user-info">Uploaded by: ${username}</div>
             <br>
-            <a href="/files/${fileId}/download">Download</a>
+            <a href="/files/${id}/download">Download</a>
             <div class="copyright">&copy; 2024 ${copyrightHolder}</div>
         </body>
         </html>
