@@ -64,6 +64,21 @@ CREATE TABLE files (
 );
 ```
 
+**Create static table**
+
+```sql
+CREATE TABLE static (
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    folder VARCHAR(255) NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    originalname VARCHAR(255) NOT NULL,
+    path VARCHAR(255) NOT NULL,
+    size INT(11) NOT NULL,
+    createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
+);
+```
+
 ## Setup Second Server (not required)
 This feature is not fully implemented and testet. Proceed with caution.
 Known issues:

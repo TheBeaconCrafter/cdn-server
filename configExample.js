@@ -20,7 +20,7 @@ const version = '1.1.0';
 const copyrightHolder = 'Example Person';
 const serverName = 'Example CDN';
 const serverURL = 'https://cdn.example.org'; // Example: https://cdn.example.org
-const corsOrigin = '*'; // Example: https://cdn.example.org - Set to frontent URL
+const corsOrigin = '*'; // Example: https://cdn.example.org or * for all
 const port = 6635;
 
 // Slave Server Config
@@ -28,6 +28,9 @@ const port = 6635;
     If this server is a slave server, set isSlave to true
     and set the masterServerURL to the URL of the master server.
     The URL should be identifieable of the server so do not have two A/AAAA records pointing to the same server.
+    Uploading and most API requests can only be done on the master server.
+    The slave merely mirrors the content of the master server (/public endpoint and embed and downloads).
+    This can be used to improve performance and availability in different regions.
 */
 const enableSyncing = false; // Set to true to enable syncing
 const isSlave = false; // Set to true if this server is a slave server
